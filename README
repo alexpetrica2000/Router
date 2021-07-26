@@ -1,0 +1,80 @@
+	Implementarea temei a durat circa 15 - 17 ore, timp in care am invatat
+cum functioneaza routerele, cum se desfasoara procesul de forwarding 
+si descrierea si implementarea protocoalelor arp, ip, icmp. A fost
+o tema interesanta si challenging de la care am avut doar de castigat.
+Ca fisiere suplimentare am inclus sequence.c si am modificat skel.h 
+cu structurile arp entry, rtable entry si functiile specifice pentru AVL.
+Sequence.c contine implementarile functiilor AVL-ului, AVL implementat
+in cadrul Temei1 de Analiza Algoritmilor.
+	Task1 - Parsarea tabelului de rutare: in cadrul acestui task 
+am ales sa optez pentru un arbore AVL care contine pe langa
+clasicele campuri height si copii stanga, dreapta, parinte,
+indexul considerat valoarea dupa care este aranjat AVL-ul,
+un camp de tip rtable_entry care tine efectiv datele dintr-un
+rtable entry (prefix, nexthop, mask, interface). Indexul din AVL 
+este chiar prefixul, deoarece dupa acesta se face ordonarea si cautarea.
+De mentionat functia get_best_entry care cauta cel mai bun
+match din tabela de rutare. Practic, porneste de la o masca 
+/32 si cauta match in AVL pe prefix facand & cu ip primit
+ca parametru. Deci la prima cautare diferita de NULL am gasit
+best matchul pe care il intorc. Daca nu se gaseste match
+se intoarce NULL. Pe scurt, ca si complexitati, AVL 
+costa pe un insert O(log n) si pe un search O(log n), deci
+ne incadram in cerintele impuse de enunt.
+	In cadrul functiei main creez atat AVL-ul cat si
+vectorul de arp_entries initial de marime 10 dar care isi dubleaza
+marimea o data ce ajunge la aceasta folosind realloc. Aloc si 2 liste
+pe le voi folosi ulterior cand primesc arp reply, detaliat mai jos.
+	Task2 - Implementarea ARP: initial verific daca este pachet
+de tip arp prin verificarea ether_typeului (0x0806). Ulterior
+verific daca parsarea se face corect si apoi daca acesta este
+destinat pentru mine, arp -> tpa == my ip. Apoi verific in opcode 
+ce tip este, ARPOP_REQEUST sau 1, caz in care am primit request si 
+trebuie sa trimit reply sau ARPOP_REPLY sau 2, caz in care am 
+primit un mac si trebuie sa vad ce pachete scot din coada, le 
+updatez corespunzator si le trimit. Daca am primit request 
+trebuie sa trimit reply, deci e simplu, doar inversez 
+ether shost-ul cu ether dhost-ul intre ele, la fel si pentru
+ipuri arp spa cu arp tpa, doar ca am grija ca in ether dhost
+la final sa modific din broadcast in adresa mea mac, folosind
+functia get_interface_mac, cu parametrii corespunzatori (adica 
+interfata de pe care a venit pachetul, pentru ca inseamna ca asa sunt
+legat de cel care a trimis pachetul).
+	In cazul in care am primit ARP_Reply imi updatez tabela ARP
+si verific ca nu am depasit sizeul caz in care as realoca memorie.
+Apoi trebuie sa trimit pachetele din coada: deci pana cand coada este
+vida, scot pachete din coada si incerc sa le trimit pe cele pentru
+care cunosc acum best_arp-entryul, adica macul destinatie la care
+ar trebui sa ajunga acestea. In cazul in care stiu macul destinatie
+updatez pachetul cu datele corespunzatoare si il trimit. Daca nu,
+pun pachetul intr-o coada noua q2, care va deveni ulterior iar coada
+principala q ( adica in q2 pun pachetele pentru care nu a venit inca
+arp replyul).
+	Task3  & Task 4 - Procesul de forwarding + protocolul ICMP: Le-am
+pus impreuna deoarece se leaga in a 2a parte a codului. Practic
+verific ether typeul daca este IP ( icmp sunt tot pachete type IP) dupa
+care imi initializez headerele ip si icmp folosind parserele. Daca 
+am pachet icmp care este de tip request si este pentru mine, asta face 
+primul if ip_hdr->daddr == myip && icmp_hdr != NULL && icmp_hdr->type == 8),
+atunci trimit echo reply. Daca ttl  <= 1 trimit icmp time limit exceeded,
+daca checksumul e gresit dau discard la pachet, dupa care actualizez pachetul
+ce urmeaza sa fie trimis, adica scad ttlul ( a mai trecut printr-un hop ), 
+rectific checksumul. Aleg best rtable entryul folosindu-ma de adresa ip
+destinatie, adica aleg pe ce interfata o sa iasa pachetul. Folosesc
+functia get_best_entry de complexitate O(log n), o cautare intr-un arbore
+AVL. Dupa care caut adresa mac care ar trebui pusa pe destinatie folosindu-ma
+de vectorul meu de arp entryuri si functia get_arp_entry ( doar parcurge 
+ip-urile pana gaseste potrivire). Daca aceasta iese nula inseamna ca nu cunosc
+macul destinatiei deci il setez ca broadcast si trimit arp request si pun
+pachetul in coada (practic pun o copie a pachetului deoarece aici am intampinat
+probleme, pentru safety am pus o copie). In arp reply acesta va fi trimis 
+ulterior catre destinatie. Daca gasesc match ip - mac in tabela arp totul
+frumos, setez eth shost macul de pe interfata pe care iese pachetul din router 
+( la fel fac pentru toate sendurile) si cea destinatie cu macul gasit in 
+tabela arp ( adica macul nexthopului ).
+	Probleme am intampinat la punerea pachetului in coada (se modificau date,
+de aceea am ales sa pun o copie) si dupa ce credeam ca am facut bine imi picau
+testele forward02 si forward03. Dupa mai multe verificari in cod am observat
+ca eu cand ceream arp request nu trimiteam la ip sender ip-ul de pe interfata
+cu care comunica routerul cu nexthopul, o puneam pe cea veche din pachet, ceea
+ce era gresit dar tot primeam raspuns, evident.
